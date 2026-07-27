@@ -1,0 +1,1597 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="使用截断奇异值分解对灰度图像进行低秩近似，固定比较 k=10、20、50、100。" />
+  <title>SVD 灰度图像低秩近似实验</title>
+  <style>
+    :root {
+      --bg: #f4f7fb;
+      --panel: rgba(255, 255, 255, 0.92);
+      --panel-solid: #ffffff;
+      --text: #172033;
+      --muted: #657087;
+      --line: #dfe5ef;
+      --primary: #3157d5;
+      --primary-dark: #2342a5;
+      --primary-soft: #eaf0ff;
+      --accent: #0f9d84;
+      --danger: #d84646;
+      --shadow: 0 18px 46px rgba(27, 43, 82, 0.10);
+      --radius: 22px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 5% 0%, rgba(49,87,213,.16), transparent 28rem),
+        radial-gradient(circle at 100% 16%, rgba(15,157,132,.10), transparent 26rem),
+        var(--bg);
+      font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+      line-height: 1.65;
+    }
+
+    button, input { font: inherit; }
+
+    .page-shell {
+      width: min(1220px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 34px 0 56px;
+    }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: 46px;
+      border: 1px solid rgba(255,255,255,.75);
+      border-radius: 30px;
+      color: #fff;
+      background:
+        linear-gradient(135deg, rgba(34,63,164,.97), rgba(49,87,213,.92) 58%, rgba(15,157,132,.88));
+      box-shadow: 0 24px 60px rgba(36,65,159,.22);
+    }
+
+    .hero::before,
+    .hero::after {
+      content: "";
+      position: absolute;
+      border-radius: 50%;
+      background: rgba(255,255,255,.09);
+      pointer-events: none;
+    }
+
+    .hero::before {
+      width: 260px;
+      height: 260px;
+      right: -72px;
+      top: -98px;
+    }
+
+    .hero::after {
+      width: 160px;
+      height: 160px;
+      right: 170px;
+      bottom: -95px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 13px;
+      margin-bottom: 16px;
+      border: 1px solid rgba(255,255,255,.24);
+      border-radius: 999px;
+      background: rgba(255,255,255,.11);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .08em;
+    }
+
+    .hero h1 {
+      position: relative;
+      z-index: 1;
+      max-width: 780px;
+      margin: 0 0 12px;
+      font-size: clamp(32px, 5vw, 56px);
+      line-height: 1.1;
+      letter-spacing: -.03em;
+    }
+
+    .hero p {
+      position: relative;
+      z-index: 1;
+      max-width: 780px;
+      margin: 0;
+      color: rgba(255,255,255,.86);
+      font-size: 17px;
+    }
+
+    .rank-row {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 24px;
+    }
+
+    .rank-pill {
+      padding: 8px 15px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.15);
+      border: 1px solid rgba(255,255,255,.22);
+      font-weight: 800;
+    }
+
+    .grid-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.22fr) minmax(280px, .78fr);
+      gap: 22px;
+      margin-top: 24px;
+    }
+
+    .panel {
+      border: 1px solid rgba(215,223,237,.9);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+    }
+
+    .upload-panel { padding: 26px; }
+
+    .section-title {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .section-title h2 {
+      margin: 0;
+      font-size: 23px;
+      letter-spacing: -.02em;
+    }
+
+    .section-title p {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .privacy-badge {
+      flex: 0 0 auto;
+      padding: 7px 11px;
+      color: #0b7563;
+      background: #e7f8f4;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .dropzone {
+      min-height: 290px;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      padding: 30px;
+      border: 2px dashed #b9c5df;
+      border-radius: 18px;
+      background: linear-gradient(180deg, #fbfcff, #f4f7ff);
+      transition: .2s ease;
+      cursor: pointer;
+      outline: none;
+    }
+
+    .dropzone:hover,
+    .dropzone:focus-visible,
+    .dropzone.is-dragging {
+      border-color: var(--primary);
+      transform: translateY(-2px);
+      background: #eef3ff;
+      box-shadow: 0 14px 30px rgba(49,87,213,.12);
+    }
+
+    .upload-icon {
+      width: 76px;
+      height: 76px;
+      display: grid;
+      place-items: center;
+      margin: 0 auto 14px;
+      border-radius: 24px;
+      color: var(--primary);
+      background: var(--primary-soft);
+      font-size: 34px;
+      font-weight: 300;
+    }
+
+    .dropzone strong {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 19px;
+    }
+
+    .dropzone span {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .button-row {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .btn {
+      appearance: none;
+      border: 0;
+      border-radius: 12px;
+      padding: 11px 17px;
+      cursor: pointer;
+      font-weight: 800;
+      transition: .18s ease;
+    }
+
+    .btn:hover { transform: translateY(-1px); }
+    .btn:disabled { cursor: not-allowed; opacity: .55; transform: none; }
+
+    .btn-primary {
+      color: #fff;
+      background: linear-gradient(135deg, var(--primary), #4c71e7);
+      box-shadow: 0 10px 20px rgba(49,87,213,.22);
+    }
+
+    .btn-secondary {
+      color: var(--primary);
+      background: var(--primary-soft);
+    }
+
+    .btn-ghost {
+      color: var(--text);
+      background: #eef1f6;
+    }
+
+    .method-panel {
+      padding: 26px;
+    }
+
+    .method-panel h2 {
+      margin: 0 0 16px;
+      font-size: 22px;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 34px 1fr;
+      gap: 12px;
+      padding: 13px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .step:last-child { border-bottom: 0; }
+
+    .step-index {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      color: var(--primary);
+      background: var(--primary-soft);
+      border-radius: 10px;
+      font-weight: 900;
+      font-size: 13px;
+    }
+
+    .step strong {
+      display: block;
+      margin-bottom: 2px;
+    }
+
+    .step p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .formula-box {
+      margin-top: 18px;
+      padding: 16px;
+      border-radius: 16px;
+      color: #244266;
+      background: #edf5ff;
+      font-family: "Times New Roman", serif;
+      text-align: center;
+      overflow-x: auto;
+    }
+
+    .status-panel {
+      display: none;
+      margin-top: 22px;
+      padding: 22px;
+    }
+
+    .status-panel.show { display: block; }
+
+    .status-line {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      align-items: center;
+      margin-bottom: 10px;
+      font-weight: 800;
+    }
+
+    .status-line span:last-child {
+      color: var(--primary);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .progress-track {
+      height: 12px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #e7ebf2;
+    }
+
+    .progress-bar {
+      height: 100%;
+      width: 0%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--primary), var(--accent));
+      transition: width .25s ease;
+    }
+
+    .status-detail {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .error-box {
+      display: none;
+      margin-top: 22px;
+      padding: 16px 18px;
+      color: #922d2d;
+      border: 1px solid #f0c6c6;
+      border-radius: 15px;
+      background: #fff1f1;
+    }
+
+    .error-box.show { display: block; }
+
+    .results {
+      display: none;
+      margin-top: 24px;
+    }
+
+    .results.show { display: block; }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr);
+      gap: 22px;
+    }
+
+    .preview-panel,
+    .chart-panel,
+    .table-panel,
+    .notes-panel {
+      padding: 24px;
+    }
+
+    .preview-wrap {
+      display: grid;
+      place-items: center;
+      min-height: 320px;
+      border-radius: 16px;
+      overflow: hidden;
+      background:
+        linear-gradient(45deg, #edf0f5 25%, transparent 25%),
+        linear-gradient(-45deg, #edf0f5 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #edf0f5 75%),
+        linear-gradient(-45deg, transparent 75%, #edf0f5 75%);
+      background-size: 22px 22px;
+      background-position: 0 0, 0 11px, 11px -11px, -11px 0;
+    }
+
+    .preview-wrap canvas,
+    .reconstruction-canvas {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      image-rendering: auto;
+    }
+
+    .meta-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .meta-item {
+      padding: 12px;
+      border-radius: 14px;
+      background: #f6f8fc;
+      text-align: center;
+    }
+
+    .meta-item span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .meta-item strong {
+      display: block;
+      margin-top: 3px;
+      font-size: 15px;
+    }
+
+    .chart-wrap {
+      position: relative;
+      min-height: 350px;
+      padding: 10px;
+      border-radius: 16px;
+      background: #fbfcff;
+    }
+
+    #singularChart {
+      display: block;
+      width: 100%;
+      height: 330px;
+    }
+
+    .reconstruction-section {
+      margin-top: 24px;
+    }
+
+    .reconstruction-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 20px;
+    }
+
+    .result-card {
+      overflow: hidden;
+      border: 1px solid rgba(215,223,237,.95);
+      border-radius: 20px;
+      background: #fff;
+      box-shadow: 0 14px 36px rgba(27,43,82,.08);
+    }
+
+    .result-image {
+      min-height: 270px;
+      display: grid;
+      place-items: center;
+      padding: 14px;
+      background: #edf0f5;
+    }
+
+    .result-body { padding: 18px; }
+
+    .result-heading {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 13px;
+    }
+
+    .result-heading h3 {
+      margin: 0;
+      font-size: 22px;
+    }
+
+    .quality-tag {
+      padding: 6px 10px;
+      border-radius: 999px;
+      color: #0b7563;
+      background: #e7f8f4;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .metric-mini-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 9px;
+      margin-bottom: 14px;
+    }
+
+    .metric-mini {
+      padding: 10px;
+      border-radius: 12px;
+      background: #f5f7fb;
+    }
+
+    .metric-mini span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .metric-mini strong {
+      display: block;
+      margin-top: 2px;
+      font-size: 14px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .download-btn { width: 100%; }
+
+    .table-panel { margin-top: 24px; }
+
+    .table-scroll { overflow-x: auto; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 780px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    th, td {
+      padding: 13px 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    th:first-child, td:first-child { text-align: left; }
+
+    th {
+      color: #4a566e;
+      background: #f5f7fb;
+      font-size: 13px;
+    }
+
+    td { font-size: 14px; }
+
+    tr:last-child td { border-bottom: 0; }
+
+    .notes-panel {
+      margin-top: 24px;
+      background: linear-gradient(135deg, rgba(255,255,255,.95), rgba(241,247,255,.95));
+    }
+
+    .notes-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+
+    .note-card {
+      padding: 16px;
+      border: 1px solid #e0e7f2;
+      border-radius: 16px;
+      background: rgba(255,255,255,.8);
+    }
+
+    .note-card strong { display: block; margin-bottom: 6px; }
+    .note-card p { margin: 0; color: var(--muted); font-size: 13px; }
+
+    footer {
+      padding: 26px 0 0;
+      color: var(--muted);
+      text-align: center;
+      font-size: 13px;
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0,0,0,0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    @media (max-width: 880px) {
+      .grid-layout,
+      .summary-grid { grid-template-columns: 1fr; }
+      .hero { padding: 34px 26px; }
+      .notes-grid { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 650px) {
+      .page-shell { width: min(100% - 20px, 1220px); padding-top: 12px; }
+      .hero { border-radius: 22px; }
+      .upload-panel, .method-panel, .preview-panel, .chart-panel, .table-panel, .notes-panel { padding: 18px; }
+      .reconstruction-grid { grid-template-columns: 1fr; }
+      .meta-row { grid-template-columns: 1fr; }
+      .section-title { flex-direction: column; }
+      .dropzone { min-height: 250px; padding: 22px 15px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page-shell">
+    <section class="hero">
+      <div class="eyebrow">LINEAR ALGEBRA · IMAGE COMPRESSION</div>
+      <h1>SVD 灰度图像低秩近似实验</h1>
+      <p>上传一张图片，浏览器会将其转换为灰度矩阵，并使用截断奇异值分解思想生成四组固定秩近似结果。所有计算均在本地完成。</p>
+      <div class="rank-row" aria-label="固定 k 值">
+        <span class="rank-pill">k = 10</span>
+        <span class="rank-pill">k = 20</span>
+        <span class="rank-pill">k = 50</span>
+        <span class="rank-pill">k = 100</span>
+      </div>
+    </section>
+
+    <section class="grid-layout">
+      <div class="panel upload-panel">
+        <div class="section-title">
+          <div>
+            <h2>上传实验图像</h2>
+            <p>支持 PNG、JPG、WEBP、BMP；彩色图片会自动灰度化。</p>
+          </div>
+          <span class="privacy-badge">本地处理</span>
+        </div>
+
+        <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="选择或拖入图片">
+          <div>
+            <div class="upload-icon">↑</div>
+            <strong>拖拽图片到这里</strong>
+            <span>或点击选择文件，建议边长不低于 100 像素</span>
+            <div class="button-row">
+              <button id="chooseButton" type="button" class="btn btn-primary">选择图片</button>
+              <button id="resetButton" type="button" class="btn btn-ghost" hidden>重新选择</button>
+            </div>
+          </div>
+        </div>
+        <input id="fileInput" class="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/bmp" />
+      </div>
+
+      <aside class="panel method-panel">
+        <h2>实验流程</h2>
+        <div class="step">
+          <div class="step-index">01</div>
+          <div><strong>灰度矩阵</strong><p>读取像素并转换为矩阵 A，元素范围为 0–255。</p></div>
+        </div>
+        <div class="step">
+          <div class="step-index">02</div>
+          <div><strong>主奇异方向</strong><p>计算前 100 个主奇异方向，并按奇异值从大到小排列。</p></div>
+        </div>
+        <div class="step">
+          <div class="step-index">03</div>
+          <div><strong>固定秩重构</strong><p>依次保留前 10、20、50、100 个分量构造 A<sub>k</sub>。</p></div>
+        </div>
+        <div class="step">
+          <div class="step-index">04</div>
+          <div><strong>误差与压缩分析</strong><p>计算数据比例、压缩倍数、相对误差、MSE 和能量保留率。</p></div>
+        </div>
+        <div class="formula-box">
+          A<sub>k</sub> = ∑<sup>k</sup><sub>i=1</sub> σ<sub>i</sub>u<sub>i</sub>v<sub>i</sub><sup>T</sup>
+        </div>
+      </aside>
+    </section>
+
+    <section id="statusPanel" class="panel status-panel" aria-live="polite">
+      <div class="status-line">
+        <span id="statusText">正在准备图像…</span>
+        <span id="statusPercent">0%</span>
+      </div>
+      <div class="progress-track"><div id="progressBar" class="progress-bar"></div></div>
+      <div id="statusDetail" class="status-detail">大尺寸图片会自动缩放，以保证浏览器端计算速度。</div>
+    </section>
+
+    <div id="errorBox" class="error-box" role="alert"></div>
+
+    <section id="results" class="results">
+      <div class="summary-grid">
+        <section class="panel preview-panel">
+          <div class="section-title">
+            <div>
+              <h2>原始灰度图像</h2>
+              <p>用于构造图像矩阵 A。</p>
+            </div>
+          </div>
+          <div class="preview-wrap"><canvas id="originalCanvas"></canvas></div>
+          <div class="meta-row">
+            <div class="meta-item"><span>处理尺寸</span><strong id="dimensionText">—</strong></div>
+            <div class="meta-item"><span>矩阵元素</span><strong id="pixelText">—</strong></div>
+            <div class="meta-item"><span>计算用时</span><strong id="timeText">—</strong></div>
+          </div>
+        </section>
+
+        <section class="panel chart-panel">
+          <div class="section-title">
+            <div>
+              <h2>奇异值衰减</h2>
+              <p>曲线下降越快，图像越适合使用较低秩近似。</p>
+            </div>
+          </div>
+          <div class="chart-wrap"><canvas id="singularChart"></canvas></div>
+        </section>
+      </div>
+
+      <section class="reconstruction-section">
+        <div class="section-title">
+          <div>
+            <h2>低秩重构结果</h2>
+            <p>随着 k 增大，通常能保留更多细节，但压缩程度会降低。</p>
+          </div>
+        </div>
+        <div id="reconstructionGrid" class="reconstruction-grid"></div>
+      </section>
+
+      <section class="panel table-panel">
+        <div class="section-title">
+          <div>
+            <h2>实验数据对比</h2>
+            <p>数据比例 R<sub>k</sub> = k(m+n+1)/(mn)，压缩倍数 C<sub>k</sub> = 1/R<sub>k</sub>。</p>
+          </div>
+          <button id="downloadCsvButton" type="button" class="btn btn-secondary">下载 CSV</button>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>k</th>
+                <th>有效秩</th>
+                <th>数据比例 R<sub>k</sub></th>
+                <th>压缩倍数 C<sub>k</sub></th>
+                <th>相对误差 E<sub>k</sub></th>
+                <th>MSE</th>
+                <th>能量保留率</th>
+              </tr>
+            </thead>
+            <tbody id="metricsBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel notes-panel">
+        <div class="section-title">
+          <div>
+            <h2>结果解读</h2>
+            <p>可直接作为实验结果与分析部分的观察依据。</p>
+          </div>
+        </div>
+        <div class="notes-grid">
+          <div class="note-card">
+            <strong>视觉效果</strong>
+            <p>较小 k 往往保留整体轮廓，较大 k 会逐步补回纹理、边缘和局部灰度变化。</p>
+          </div>
+          <div class="note-card">
+            <strong>误差变化</strong>
+            <p>k 增大时，相对 Frobenius 误差与 MSE 通常下降，说明重构矩阵更接近原矩阵。</p>
+          </div>
+          <div class="note-card">
+            <strong>压缩权衡</strong>
+            <p>若 R<sub>k</sub> 大于 1，按浮点矩阵直接保存时已不具备理论数据量优势。</p>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <footer>截断 SVD 灰度图像实验 · 浏览器端随机化子空间算法 · 无需上传服务器</footer>
+  </main>
+
+  <script>
+  (() => {
+    "use strict";
+
+    const FIXED_KS = [10, 20, 50, 100];
+    const MAX_SIDE = 480;
+    const MAX_PIXELS = 180000;
+
+    const fileInput = document.getElementById("fileInput");
+    const chooseButton = document.getElementById("chooseButton");
+    const resetButton = document.getElementById("resetButton");
+    const dropzone = document.getElementById("dropzone");
+    const statusPanel = document.getElementById("statusPanel");
+    const statusText = document.getElementById("statusText");
+    const statusPercent = document.getElementById("statusPercent");
+    const statusDetail = document.getElementById("statusDetail");
+    const progressBar = document.getElementById("progressBar");
+    const errorBox = document.getElementById("errorBox");
+    const results = document.getElementById("results");
+    const originalCanvas = document.getElementById("originalCanvas");
+    const dimensionText = document.getElementById("dimensionText");
+    const pixelText = document.getElementById("pixelText");
+    const timeText = document.getElementById("timeText");
+    const reconstructionGrid = document.getElementById("reconstructionGrid");
+    const metricsBody = document.getElementById("metricsBody");
+    const downloadCsvButton = document.getElementById("downloadCsvButton");
+
+    let activeWorker = null;
+    let currentResults = [];
+    let currentMeta = null;
+
+    const formatNumber = (value, digits = 4) =>
+      Number.isFinite(value) ? value.toLocaleString("zh-CN", { maximumFractionDigits: digits }) : "—";
+
+    function setProgress(percent, title, detail) {
+      const p = Math.max(0, Math.min(100, Math.round(percent)));
+      statusPanel.classList.add("show");
+      progressBar.style.width = p + "%";
+      statusPercent.textContent = p + "%";
+      statusText.textContent = title;
+      if (detail) statusDetail.textContent = detail;
+    }
+
+    function showError(message) {
+      errorBox.textContent = message;
+      errorBox.classList.add("show");
+      statusPanel.classList.remove("show");
+    }
+
+    function clearError() {
+      errorBox.textContent = "";
+      errorBox.classList.remove("show");
+    }
+
+    function resetInterface() {
+      if (activeWorker) {
+        activeWorker.terminate();
+        activeWorker = null;
+      }
+      fileInput.value = "";
+      currentResults = [];
+      currentMeta = null;
+      reconstructionGrid.innerHTML = "";
+      metricsBody.innerHTML = "";
+      results.classList.remove("show");
+      statusPanel.classList.remove("show");
+      clearError();
+      resetButton.hidden = true;
+      chooseButton.hidden = false;
+      dropzone.querySelector("strong").textContent = "拖拽图片到这里";
+      dropzone.querySelector("span").textContent = "或点击选择文件，建议边长不低于 100 像素";
+    }
+
+    chooseButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      fileInput.click();
+    });
+
+    resetButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      resetInterface();
+      fileInput.click();
+    });
+
+    dropzone.addEventListener("click", () => fileInput.click());
+    dropzone.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        fileInput.click();
+      }
+    });
+
+    ["dragenter", "dragover"].forEach(type => {
+      dropzone.addEventListener(type, (event) => {
+        event.preventDefault();
+        dropzone.classList.add("is-dragging");
+      });
+    });
+
+    ["dragleave", "drop"].forEach(type => {
+      dropzone.addEventListener(type, (event) => {
+        event.preventDefault();
+        dropzone.classList.remove("is-dragging");
+      });
+    });
+
+    dropzone.addEventListener("drop", (event) => {
+      const file = event.dataTransfer.files && event.dataTransfer.files[0];
+      if (file) processFile(file);
+    });
+
+    fileInput.addEventListener("change", () => {
+      const file = fileInput.files && fileInput.files[0];
+      if (file) processFile(file);
+    });
+
+    async function processFile(file) {
+      clearError();
+      results.classList.remove("show");
+      statusPanel.classList.add("show");
+
+      if (!file.type.startsWith("image/")) {
+        showError("请选择有效的图片文件。");
+        return;
+      }
+
+      try {
+        setProgress(3, "正在读取图片…", file.name);
+        const bitmap = await loadBitmap(file);
+        const sourceW = bitmap.width;
+        const sourceH = bitmap.height;
+        const scale = Math.min(
+          1,
+          MAX_SIDE / Math.max(sourceW, sourceH),
+          Math.sqrt(MAX_PIXELS / (sourceW * sourceH))
+        );
+        const width = Math.max(1, Math.round(sourceW * scale));
+        const height = Math.max(1, Math.round(sourceH * scale));
+
+        if (Math.min(width, height) < 10) {
+          throw new Error("图片尺寸过小，无法进行 k=10 的低秩近似。");
+        }
+
+        setProgress(8, "正在生成灰度矩阵…",
+          scale < 1
+            ? `原图 ${sourceW}×${sourceH}，为保证计算速度已缩放至 ${width}×${height}`
+            : `处理尺寸 ${width}×${height}`
+        );
+
+        const ctx = originalCanvas.getContext("2d", { willReadFrequently: true });
+        originalCanvas.width = width;
+        originalCanvas.height = height;
+        ctx.clearRect(0, 0, width, height);
+        ctx.drawImage(bitmap, 0, 0, width, height);
+        if (bitmap.close) bitmap.close();
+
+        const imageData = ctx.getImageData(0, 0, width, height);
+        const rgba = imageData.data;
+        const matrix = new Float64Array(width * height);
+        for (let i = 0, p = 0; i < rgba.length; i += 4, p++) {
+          const gray = 0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2];
+          matrix[p] = gray;
+          const g = Math.round(gray);
+          rgba[i] = rgba[i + 1] = rgba[i + 2] = g;
+          rgba[i + 3] = 255;
+        }
+        ctx.putImageData(imageData, 0, 0);
+
+        dimensionText.textContent = `${width} × ${height}`;
+        pixelText.textContent = (width * height).toLocaleString("zh-CN");
+        timeText.textContent = "计算中";
+        resetButton.hidden = false;
+        chooseButton.hidden = true;
+        dropzone.querySelector("strong").textContent = file.name;
+        dropzone.querySelector("span").textContent = "正在执行截断 SVD 近似，请稍候…";
+
+        startWorker(matrix, height, width, {
+          fileName: file.name,
+          sourceW,
+          sourceH,
+          width,
+          height,
+          wasResized: scale < 1
+        });
+      } catch (error) {
+        console.error(error);
+        showError(error.message || "图片处理失败，请更换图片后重试。");
+      }
+    }
+
+    function loadBitmap(file) {
+      if ("createImageBitmap" in window) return createImageBitmap(file);
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+          URL.revokeObjectURL(url);
+          resolve(img);
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(url);
+          reject(new Error("浏览器无法读取该图片。"));
+        };
+        img.src = url;
+      });
+    }
+
+    function startWorker(matrix, m, n, meta) {
+      if (activeWorker) activeWorker.terminate();
+      const workerSource = `(${svdWorkerMain.toString()})()`;
+      const blobUrl = URL.createObjectURL(new Blob([workerSource], { type: "text/javascript" }));
+      activeWorker = new Worker(blobUrl);
+      URL.revokeObjectURL(blobUrl);
+
+      const started = performance.now();
+
+      activeWorker.onmessage = (event) => {
+        const data = event.data;
+        if (data.type === "progress") {
+          setProgress(data.percent, data.title, data.detail);
+          return;
+        }
+
+        if (data.type === "error") {
+          activeWorker.terminate();
+          activeWorker = null;
+          showError(data.message || "计算失败。");
+          return;
+        }
+
+        if (data.type === "done") {
+          const elapsed = (performance.now() - started) / 1000;
+          activeWorker.terminate();
+          activeWorker = null;
+          setProgress(100, "计算完成", "已生成四组低秩近似结果。");
+          setTimeout(() => statusPanel.classList.remove("show"), 550);
+
+          currentMeta = { ...meta, m, n, elapsed };
+          currentResults = data.results.map(item => ({
+            ...item,
+            pixels: new Uint8ClampedArray(item.buffer)
+          }));
+
+          timeText.textContent = elapsed < 10 ? `${elapsed.toFixed(2)} 秒` : `${elapsed.toFixed(1)} 秒`;
+          dropzone.querySelector("span").textContent =
+            meta.wasResized
+              ? `已完成；输出尺寸 ${meta.width}×${meta.height}（原图已缩放）`
+              : "已完成；可重新选择图片进行下一次实验";
+
+          renderResults(data.singularValues, currentResults, m, n);
+        }
+      };
+
+      activeWorker.onerror = (error) => {
+        console.error(error);
+        if (activeWorker) activeWorker.terminate();
+        activeWorker = null;
+        showError("浏览器计算线程发生错误。建议换用较小图片或最新版 Chrome / Edge。");
+      };
+
+      activeWorker.postMessage(
+        { type: "compute", buffer: matrix.buffer, m, n, ks: FIXED_KS },
+        [matrix.buffer]
+      );
+    }
+
+    function renderResults(singularValues, resultItems, m, n) {
+      reconstructionGrid.innerHTML = "";
+      metricsBody.innerHTML = "";
+
+      resultItems.forEach((item, index) => {
+        const card = document.createElement("article");
+        card.className = "result-card";
+
+        const quality = qualityLabel(item.requestedK, item.relativeError);
+        card.innerHTML = `
+          <div class="result-image"><canvas class="reconstruction-canvas"></canvas></div>
+          <div class="result-body">
+            <div class="result-heading">
+              <h3>k = ${item.requestedK}</h3>
+              <span class="quality-tag">${quality}</span>
+            </div>
+            <div class="metric-mini-grid">
+              <div class="metric-mini"><span>相对误差</span><strong>${formatNumber(item.relativeError, 6)}</strong></div>
+              <div class="metric-mini"><span>MSE</span><strong>${formatNumber(item.mse, 3)}</strong></div>
+              <div class="metric-mini"><span>压缩倍数</span><strong>${formatNumber(item.compression, 3)}×</strong></div>
+              <div class="metric-mini"><span>能量保留率</span><strong>${formatNumber(item.energy * 100, 2)}%</strong></div>
+            </div>
+            <button class="btn btn-primary download-btn" type="button">下载 k=${item.requestedK} 图片</button>
+          </div>
+        `;
+
+        const canvas = card.querySelector("canvas");
+        paintGrayCanvas(canvas, item.pixels, n, m);
+        card.querySelector("button").addEventListener("click", () => {
+          downloadCanvas(canvas, `svd_low_rank_k${item.requestedK}.png`);
+        });
+        reconstructionGrid.appendChild(card);
+
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td><strong>${item.requestedK}</strong></td>
+          <td>${item.effectiveK}</td>
+          <td>${formatNumber(item.ratio, 5)}</td>
+          <td>${formatNumber(item.compression, 4)}</td>
+          <td>${formatNumber(item.relativeError, 7)}</td>
+          <td>${formatNumber(item.mse, 4)}</td>
+          <td>${formatNumber(item.energy * 100, 3)}%</td>
+        `;
+        metricsBody.appendChild(row);
+      });
+
+      drawSingularChart(singularValues);
+      results.classList.add("show");
+      results.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    function paintGrayCanvas(canvas, pixels, width, height) {
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      const imageData = ctx.createImageData(width, height);
+      const rgba = imageData.data;
+      for (let p = 0, i = 0; p < pixels.length; p++, i += 4) {
+        const g = pixels[p];
+        rgba[i] = rgba[i + 1] = rgba[i + 2] = g;
+        rgba[i + 3] = 255;
+      }
+      ctx.putImageData(imageData, 0, 0);
+    }
+
+    function qualityLabel(k, error) {
+      if (error < 0.03) return "接近原图";
+      if (error < 0.07) return "较清晰";
+      if (error < 0.13) return "细节明显";
+      if (k <= 10) return "轮廓优先";
+      return "结构保留";
+    }
+
+    function downloadCanvas(canvas, filename) {
+      canvas.toBlob(blob => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = filename;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }, "image/png");
+    }
+
+    downloadCsvButton.addEventListener("click", () => {
+      if (!currentResults.length || !currentMeta) return;
+      const header = ["k", "effective_k", "data_ratio_Rk", "compression_Ck", "relative_error_Ek", "MSE", "energy_retention"];
+      const lines = [header.join(",")];
+      currentResults.forEach(item => {
+        lines.push([
+          item.requestedK,
+          item.effectiveK,
+          item.ratio,
+          item.compression,
+          item.relativeError,
+          item.mse,
+          item.energy
+        ].join(","));
+      });
+      const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "svd_experiment_metrics.csv";
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+
+    function drawSingularChart(values) {
+      const canvas = document.getElementById("singularChart");
+      const rect = canvas.getBoundingClientRect();
+      const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+      const width = Math.max(520, Math.floor(rect.width || 720));
+      const height = 330;
+      canvas.width = Math.floor(width * dpr);
+      canvas.height = Math.floor(height * dpr);
+      canvas.style.height = height + "px";
+      const ctx = canvas.getContext("2d");
+      ctx.scale(dpr, dpr);
+
+      const margin = { left: 64, right: 22, top: 42, bottom: 52 };
+      const plotW = width - margin.left - margin.right;
+      const plotH = height - margin.top - margin.bottom;
+      const shown = values.slice(0, Math.min(values.length, 110));
+      const maxV = Math.max(...shown, 1);
+      const logMin = Math.log10(Math.max(maxV * 1e-4, 1e-8));
+      const logMax = Math.log10(maxV);
+      const yOf = v => {
+        const lv = Math.log10(Math.max(v, Math.pow(10, logMin)));
+        return margin.top + (logMax - lv) / Math.max(logMax - logMin, 1e-9) * plotH;
+      };
+      const xOf = i => margin.left + (shown.length <= 1 ? 0 : i / (shown.length - 1)) * plotW;
+
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = "#fbfcff";
+      ctx.fillRect(0, 0, width, height);
+
+      ctx.font = "700 15px Inter, system-ui, sans-serif";
+      ctx.fillStyle = "#172033";
+      ctx.textAlign = "left";
+      ctx.fillText("Singular Value Decay", margin.left, 22);
+
+      ctx.strokeStyle = "#dce3ef";
+      ctx.lineWidth = 1;
+      ctx.font = "12px Inter, system-ui, sans-serif";
+      ctx.fillStyle = "#68748a";
+
+      for (let t = 0; t <= 4; t++) {
+        const y = margin.top + t / 4 * plotH;
+        ctx.beginPath();
+        ctx.moveTo(margin.left, y);
+        ctx.lineTo(width - margin.right, y);
+        ctx.stroke();
+        const exponent = logMax - t / 4 * (logMax - logMin);
+        const label = Math.pow(10, exponent);
+        ctx.textAlign = "right";
+        ctx.fillText(label >= 1000 ? label.toExponential(1) : label.toFixed(label >= 10 ? 0 : 2), margin.left - 10, y + 4);
+      }
+
+      const ticks = [1, 10, 20, 50, 100].filter(v => v <= shown.length);
+      ticks.forEach(v => {
+        const x = xOf(v - 1);
+        ctx.beginPath();
+        ctx.moveTo(x, margin.top);
+        ctx.lineTo(x, margin.top + plotH);
+        ctx.stroke();
+        ctx.textAlign = "center";
+        ctx.fillText(String(v), x, margin.top + plotH + 22);
+      });
+
+      ctx.strokeStyle = "#3157d5";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      shown.forEach((v, i) => {
+        const x = xOf(i);
+        const y = yOf(v);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      ctx.fillStyle = "#3157d5";
+      shown.forEach((v, i) => {
+        if (i === 0 || [9, 19, 49, 99].includes(i) || i === shown.length - 1) {
+          ctx.beginPath();
+          ctx.arc(xOf(i), yOf(v), 3.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      });
+
+      ctx.fillStyle = "#526078";
+      ctx.textAlign = "center";
+      ctx.font = "12px Inter, system-ui, sans-serif";
+      ctx.fillText("Index", margin.left + plotW / 2, height - 12);
+
+      ctx.save();
+      ctx.translate(16, margin.top + plotH / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText("Singular value (log scale)", 0, 0);
+      ctx.restore();
+    }
+
+    window.addEventListener("resize", () => {
+      if (currentResults.length && currentMeta) {
+        // Worker returns singular values only during render; keep chart stable rather than recomputing.
+      }
+    });
+
+    function svdWorkerMain() {
+      "use strict";
+
+      self.onmessage = event => {
+        if (!event.data || event.data.type !== "compute") return;
+        try {
+          const A = new Float64Array(event.data.buffer);
+          const m = event.data.m;
+          const n = event.data.n;
+          const ks = event.data.ks;
+          const maxRequestedK = Math.max(...ks);
+          compute(A, m, n, ks, maxRequestedK);
+        } catch (error) {
+          self.postMessage({ type: "error", message: error.message || String(error) });
+        }
+      };
+
+      function progress(percent, title, detail) {
+        self.postMessage({ type: "progress", percent, title, detail });
+      }
+
+      function compute(A, m, n, ks, maxRequestedK) {
+        const start = Date.now();
+        const minDim = Math.min(m, n);
+        const maxRank = Math.min(maxRequestedK, minDim);
+        const oversample = Math.min(10, Math.max(0, minDim - maxRank));
+        const l = Math.min(minDim, maxRank + oversample);
+
+        progress(14, "正在建立随机子空间…", `目标秩 ${maxRank}，子空间维数 ${l}`);
+        const omega = gaussianMatrix(n, l, 20260712);
+        let Y = multiplyAByMatrix(A, m, n, omega, l);
+
+        progress(27, "正在执行子空间迭代…", "强化主要奇异方向");
+        orthonormalize(Y, m, l);
+        // One power iteration: Y <- A(A^T Q)
+        const Z = multiplyATByMatrix(A, m, n, Y, l);
+        Y = multiplyAByMatrix(A, m, n, Z, l);
+        orthonormalize(Y, m, l);
+        const Q = Y;
+
+        progress(46, "正在构造小型分解矩阵…", `QᵀA 的尺寸为 ${l}×${n}`);
+        const B = multiplyQTByA(Q, A, m, n, l);
+        const C = multiplyBBT(B, l, n);
+
+        progress(60, "正在求解主奇异值…", "对称 Jacobi 特征值迭代");
+        const eig = jacobiEigenSymmetric(C, l);
+        const order = Array.from({ length: l }, (_, i) => i)
+          .sort((a, b) => eig.values[b] - eig.values[a]);
+
+        const singularValues = order.map(i => Math.sqrt(Math.max(0, eig.values[i])));
+        const E = reorderColumns(eig.vectors, l, order);
+
+        progress(72, "正在恢复奇异分量…", "构造 U 与投影系数");
+        const U = multiplyMatrices(Q, E, m, l, l);
+        const T = multiplyETByB(E, B, l, n);
+
+        let normA2 = 0;
+        for (let i = 0; i < A.length; i++) normA2 += A[i] * A[i];
+
+        const cumulativeEnergy = new Float64Array(l);
+        let eSum = 0;
+        for (let i = 0; i < l; i++) {
+          eSum += singularValues[i] * singularValues[i];
+          cumulativeEnergy[i] = normA2 > 0 ? Math.min(1, eSum / normA2) : 1;
+        }
+
+        const sortedKs = [...ks].sort((a, b) => a - b);
+        const reconstruction = new Float64Array(m * n);
+        const results = [];
+        let prevK = 0;
+
+        sortedKs.forEach((requestedK, index) => {
+          const effectiveK = Math.min(requestedK, maxRank);
+          progress(
+            76 + index * 5,
+            `正在重构 k = ${requestedK}…`,
+            effectiveK < requestedK ? `图片最小维数限制，有效秩为 ${effectiveK}` : "累加主要奇异分量"
+          );
+
+          for (let p = prevK; p < effectiveK; p++) {
+            const tOffset = p * n;
+            for (let i = 0; i < m; i++) {
+              const u = U[i * l + p];
+              const aOffset = i * n;
+              for (let j = 0; j < n; j++) {
+                reconstruction[aOffset + j] += u * T[tOffset + j];
+              }
+            }
+          }
+          prevK = effectiveK;
+
+          let error2 = 0;
+          const pixels = new Uint8ClampedArray(m * n);
+          for (let idx = 0; idx < reconstruction.length; idx++) {
+            const value = reconstruction[idx];
+            const diff = A[idx] - value;
+            error2 += diff * diff;
+            pixels[idx] = Math.max(0, Math.min(255, Math.round(value)));
+          }
+
+          const ratio = requestedK * (m + n + 1) / (m * n);
+          const compression = ratio > 0 ? 1 / ratio : Infinity;
+          const relativeError = normA2 > 0 ? Math.sqrt(error2 / normA2) : 0;
+          const mse = error2 / (m * n);
+          const energy = effectiveK > 0 ? cumulativeEnergy[effectiveK - 1] : 0;
+
+          results.push({
+            requestedK,
+            effectiveK,
+            ratio,
+            compression,
+            relativeError,
+            mse,
+            energy,
+            buffer: pixels.buffer
+          });
+        });
+
+        progress(98, "正在整理实验结果…", `总计算时间 ${((Date.now() - start) / 1000).toFixed(2)} 秒`);
+        self.postMessage(
+          {
+            type: "done",
+            singularValues,
+            results
+          },
+          results.map(item => item.buffer)
+        );
+      }
+
+      function gaussianMatrix(rows, cols, seed) {
+        const out = new Float64Array(rows * cols);
+        let state = seed >>> 0;
+        const random = () => {
+          state = (1664525 * state + 1013904223) >>> 0;
+          return (state + 1) / 4294967297;
+        };
+        for (let i = 0; i < out.length; i += 2) {
+          const u1 = Math.max(random(), 1e-12);
+          const u2 = random();
+          const r = Math.sqrt(-2 * Math.log(u1));
+          const theta = 2 * Math.PI * u2;
+          out[i] = r * Math.cos(theta);
+          if (i + 1 < out.length) out[i + 1] = r * Math.sin(theta);
+        }
+        return out;
+      }
+
+      function multiplyAByMatrix(A, m, n, X, cols) {
+        const Y = new Float64Array(m * cols);
+        for (let i = 0; i < m; i++) {
+          const aOffset = i * n;
+          const yOffset = i * cols;
+          for (let j = 0; j < n; j++) {
+            const a = A[aOffset + j];
+            const xOffset = j * cols;
+            for (let c = 0; c < cols; c++) {
+              Y[yOffset + c] += a * X[xOffset + c];
+            }
+          }
+        }
+        return Y;
+      }
+
+      function multiplyATByMatrix(A, m, n, Y, cols) {
+        const Z = new Float64Array(n * cols);
+        for (let i = 0; i < m; i++) {
+          const aOffset = i * n;
+          const yOffset = i * cols;
+          for (let j = 0; j < n; j++) {
+            const a = A[aOffset + j];
+            const zOffset = j * cols;
+            for (let c = 0; c < cols; c++) {
+              Z[zOffset + c] += a * Y[yOffset + c];
+            }
+          }
+        }
+        return Z;
+      }
+
+      function orthonormalize(M, rows, cols) {
+        const eps = 1e-12;
+        for (let pass = 0; pass < 2; pass++) {
+          for (let j = 0; j < cols; j++) {
+            for (let k = 0; k < j; k++) {
+              let dot = 0;
+              for (let i = 0; i < rows; i++) dot += M[i * cols + k] * M[i * cols + j];
+              for (let i = 0; i < rows; i++) M[i * cols + j] -= dot * M[i * cols + k];
+            }
+            let norm = 0;
+            for (let i = 0; i < rows; i++) {
+              const v = M[i * cols + j];
+              norm += v * v;
+            }
+            norm = Math.sqrt(norm);
+            if (norm < eps) {
+              for (let i = 0; i < rows; i++) M[i * cols + j] = 0;
+              M[(j % rows) * cols + j] = 1;
+              norm = 1;
+            }
+            const inv = 1 / norm;
+            for (let i = 0; i < rows; i++) M[i * cols + j] *= inv;
+          }
+        }
+      }
+
+      function multiplyQTByA(Q, A, m, n, l) {
+        const B = new Float64Array(l * n);
+        for (let i = 0; i < m; i++) {
+          const qOffset = i * l;
+          const aOffset = i * n;
+          for (let p = 0; p < l; p++) {
+            const q = Q[qOffset + p];
+            const bOffset = p * n;
+            for (let j = 0; j < n; j++) B[bOffset + j] += q * A[aOffset + j];
+          }
+        }
+        return B;
+      }
+
+      function multiplyBBT(B, l, n) {
+        const C = new Float64Array(l * l);
+        for (let p = 0; p < l; p++) {
+          const pOffset = p * n;
+          for (let q = p; q < l; q++) {
+            const qOffset = q * n;
+            let sum = 0;
+            for (let j = 0; j < n; j++) sum += B[pOffset + j] * B[qOffset + j];
+            C[p * l + q] = sum;
+            C[q * l + p] = sum;
+          }
+        }
+        return C;
+      }
+
+      function jacobiEigenSymmetric(matrix, n) {
+        const A = new Float64Array(matrix);
+        const V = new Float64Array(n * n);
+        for (let i = 0; i < n; i++) V[i * n + i] = 1;
+
+        const maxSweeps = 45;
+        const tolerance = 1e-10;
+
+        for (let sweep = 0; sweep < maxSweeps; sweep++) {
+          let off = 0;
+          let diag = 0;
+          for (let p = 0; p < n; p++) {
+            diag += Math.abs(A[p * n + p]);
+            for (let q = p + 1; q < n; q++) off += Math.abs(A[p * n + q]);
+          }
+          if (off <= tolerance * Math.max(diag, 1)) break;
+
+          const threshold = sweep < 4 ? off / (n * n) * 0.2 : 0;
+          for (let p = 0; p < n - 1; p++) {
+            for (let q = p + 1; q < n; q++) {
+              const apq = A[p * n + q];
+              if (Math.abs(apq) <= threshold) continue;
+
+              const app = A[p * n + p];
+              const aqq = A[q * n + q];
+              const tau = (aqq - app) / (2 * apq);
+              const t = Math.sign(tau || 1) / (Math.abs(tau) + Math.sqrt(1 + tau * tau));
+              const c = 1 / Math.sqrt(1 + t * t);
+              const s = t * c;
+
+              for (let k = 0; k < n; k++) {
+                if (k === p || k === q) continue;
+                const akp = A[k * n + p];
+                const akq = A[k * n + q];
+                const newKp = c * akp - s * akq;
+                const newKq = s * akp + c * akq;
+                A[k * n + p] = A[p * n + k] = newKp;
+                A[k * n + q] = A[q * n + k] = newKq;
+              }
+
+              A[p * n + p] = c * c * app - 2 * s * c * apq + s * s * aqq;
+              A[q * n + q] = s * s * app + 2 * s * c * apq + c * c * aqq;
+              A[p * n + q] = A[q * n + p] = 0;
+
+              for (let k = 0; k < n; k++) {
+                const vkp = V[k * n + p];
+                const vkq = V[k * n + q];
+                V[k * n + p] = c * vkp - s * vkq;
+                V[k * n + q] = s * vkp + c * vkq;
+              }
+            }
+          }
+        }
+
+        const values = new Float64Array(n);
+        for (let i = 0; i < n; i++) values[i] = A[i * n + i];
+        return { values, vectors: V };
+      }
+
+      function reorderColumns(V, n, order) {
+        const E = new Float64Array(n * n);
+        for (let newCol = 0; newCol < n; newCol++) {
+          const oldCol = order[newCol];
+          for (let row = 0; row < n; row++) {
+            E[row * n + newCol] = V[row * n + oldCol];
+          }
+        }
+        return E;
+      }
+
+      function multiplyMatrices(A, B, rowsA, shared, colsB) {
+        const C = new Float64Array(rowsA * colsB);
+        for (let i = 0; i < rowsA; i++) {
+          const aOffset = i * shared;
+          const cOffset = i * colsB;
+          for (let k = 0; k < shared; k++) {
+            const a = A[aOffset + k];
+            const bOffset = k * colsB;
+            for (let j = 0; j < colsB; j++) C[cOffset + j] += a * B[bOffset + j];
+          }
+        }
+        return C;
+      }
+
+      function multiplyETByB(E, B, l, n) {
+        const T = new Float64Array(l * n);
+        for (let p = 0; p < l; p++) {
+          const tOffset = p * n;
+          for (let q = 0; q < l; q++) {
+            const e = E[q * l + p];
+            const bOffset = q * n;
+            for (let j = 0; j < n; j++) T[tOffset + j] += e * B[bOffset + j];
+          }
+        }
+        return T;
+      }
+    }
+  })();
+  </script>
+</body>
+</html>
